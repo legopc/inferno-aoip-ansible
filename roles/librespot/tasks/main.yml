@@ -1,0 +1,76 @@
+---
+# librespot is available in the official Arch repos (community/extra) and via AUR.
+# Use pacman (with become) so sudo password is handled by Ansible, not yay.
+- name: Check if librespot is installed
+  ansible.builtin.command: which librespot
+  register: librespot_check
+  changed_when: false
+  failed_when: false
+
+- name: Install librespot via pacman
+  community.general.pacman:
+    name: librespot
+    state: present
+  become: true
+  when: librespot_check.rc != 0
+
+- name: Ensure librespot cache directory exists
+  ansible.builtin.file:
+    path: "/home/{{ inferno_user }}/.cache/librespot"
+    state: directory
+    mode: "0755"
+
+- name: Ensure user systemd service directory exists
+  ansible.builtin.file:
+    path: "/home/{{ inferno_user }}/.config/systemd/user"
+    state: directory
+    mode: "0755"
+
+- name: Ensure ~/bin directory exists
+  ansible.builtin.file:
+    path: "/home/{{ inferno_user }}/bin"
+    state: directory
+    mode: "0755"
+
+- name: Deploy inferno-sink-event script
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/templates/inferno-sink-event.j2"
+    dest: "/home/{{ inferno_user }}/bin/inferno-sink-event"
+    mode: "0755"
+
+- name: Deploy librespot-watchdog script
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/templates/librespot-watchdog.j2"
+    dest: "/home/{{ inferno_user }}/bin/librespot-watchdog"
+    mode: "0755"
+
+- name: Deploy librespot user systemd service
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/templates/librespot.service.j2"
+    dest: "/home/{{ inferno_user }}/.config/systemd/user/librespot.service"
+    mode: "0644"
+
+- name: Deploy inferno-keepalive user systemd service
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/templates/inferno-keepalive.service.j2"
+    dest: "/home/{{ inferno_user }}/.config/systemd/user/inferno-keepalive.service"
+    mode: "0644"
+
+- name: Deploy inferno-bridge user systemd service
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/templates/inferno-bridge.service.j2"
+    dest: "/home/{{ inferno_user }}/.config/systemd/user/inferno-bridge.service"
+    mode: "0644"
+
+- name: Deploy librespot-watchdog user systemd service
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/templates/librespot-watchdog.service.j2"
+    dest: "/home/{{ inferno_user }}/.config/systemd/user/librespot-watchdog.service"
+    mode: "0644"
+
+# Reload so systemd picks up the new/updated unit files before enable/start in system-state role.
+- name: Reload user systemd daemon after service deployment
+  ansible.builtin.command: systemctl --user daemon-reload
+  changed_when: false
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ inferno_uid }}"

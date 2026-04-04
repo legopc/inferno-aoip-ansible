@@ -1,0 +1,91 @@
+---
+- name: Fix /etc/resolv.conf symlink for systemd-resolved (fresh Arch install)
+  ansible.builtin.file:
+    src: /run/systemd/resolve/stub-resolv.conf
+    dest: /etc/resolv.conf
+    state: link
+    force: true
+  become: true
+
+- name: Update pacman package cache
+  community.general.pacman:
+    update_cache: true
+  become: true
+
+- name: Install base system packages
+  community.general.pacman:
+    name:
+      - pipewire
+      - pipewire-alsa
+      - pipewire-pulse
+      - wireplumber
+      - alsa-utils
+      - alsa-lib
+      - alsa-plugins
+      - speexdsp
+      - base-devel
+      - git
+      - go
+      - avahi
+      - nss-mdns
+    state: present
+  become: true
+
+- name: Deploy snd-aloop module-load config
+  ansible.builtin.copy:
+    content: "snd-aloop\n"
+    dest: /etc/modules-load.d/snd-aloop.conf
+    mode: "0644"
+  become: true
+
+- name: Deploy snd-aloop modprobe options (pin to card index 5)
+  ansible.builtin.copy:
+    content: "options snd-aloop index=5\n"
+    dest: /etc/modprobe.d/snd-aloop.conf
+    mode: "0644"
+  become: true
+
+- name: Load snd-aloop kernel module if not already loaded
+  ansible.builtin.command: modprobe snd-aloop
+  become: true
+  changed_when: false
+  failed_when: false
+
+# Required for ALC221 codec access (arecord/aplay against hw:1,0).
+# Without this, `aplay -l` returns "no soundcards found" for the user.
+- name: Add {{ inferno_user }} to the audio group
+  ansible.builtin.user:
+    name: "{{ inferno_user }}"
+    groups: audio
+    append: true
+  become: true
+
+# Install yay AUR helper if not already present
+- name: Check if yay is installed
+  ansible.builtin.stat:
+    path: /usr/bin/yay
+  register: yay_stat
+
+- name: Build and install yay from AUR
+  when: not yay_stat.stat.exists
+  block:
+    - name: Clone yay AUR repository
+      ansible.builtin.git:
+        repo: https://aur.archlinux.org/yay.git
+        dest: "/home/{{ inferno_user }}/yay-build"
+        update: false
+
+    - name: Build yay package with makepkg
+      ansible.builtin.command: makepkg -s --noconfirm
+      args:
+        chdir: "/home/{{ inferno_user }}/yay-build"
+
+    - name: Find built yay package file
+      ansible.builtin.find:
+        paths: "/home/{{ inferno_user }}/yay-build"
+        patterns: "yay-[0-9]*.pkg.tar.zst"
+      register: yay_pkg_files
+
+    - name: Install yay package with pacman
+      ansible.builtin.command: "pacman -U --noconfirm {{ yay_pkg_files.files[0].path }}"
+      become: true

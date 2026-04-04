@@ -1,0 +1,11 @@
+# Ignore personal inventory files — they contain real IPs and credentials.
+# Only inventory.example.yml (no real data) should be committed.
+inventory-*.yml
+!inventory.example.yml
+
+# Ansible retry files
+*.retry
+
+# Python cache
+__pycache__/
+*.pyc

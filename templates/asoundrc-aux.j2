@@ -1,0 +1,49 @@
+pcm_type.inferno {
+    lib "/usr/lib/alsa-lib/libasound_module_pcm_inferno.so"
+}
+
+# AUX TX: analog input → Dante transmitter
+# Appears in Dante Controller as "{{ inferno_name }}-TX"
+# DEVICE_ID derived from NIC MAC + "0001" (incremented from base "0000")
+pcm.inferno_aux_tx {
+    type inferno
+    NAME "{{ inferno_name }}-TX"
+    BIND_IP {{ inferno_interface }}
+    SAMPLE_RATE 48000
+    PROCESS_ID 2
+    ALT_PORT 6004
+    RX_CHANNELS 0
+    TX_CHANNELS 2
+    TX_LATENCY_NS 10000000
+    RX_LATENCY_NS 10000000
+    CLOCK_PATH /tmp/ptp-usrvclock
+    DEVICE_ID {{ inferno_device_id[:-4] }}0001
+
+    hint {
+        show off
+        description "Inferno AUX TX: analog in to Dante"
+    }
+}
+
+# AUX RX: Dante receiver → analog output
+# Appears in Dante Controller as "{{ inferno_name }}-RX"
+# DEVICE_ID derived from NIC MAC + "0002"
+pcm.inferno_aux_rx {
+    type inferno
+    NAME "{{ inferno_name }}-RX"
+    BIND_IP {{ inferno_interface }}
+    SAMPLE_RATE 48000
+    PROCESS_ID 3
+    ALT_PORT 6008
+    RX_CHANNELS 2
+    TX_CHANNELS 0
+    TX_LATENCY_NS 10000000
+    RX_LATENCY_NS 10000000
+    CLOCK_PATH /tmp/ptp-usrvclock
+    DEVICE_ID {{ inferno_device_id[:-4] }}0002
+
+    hint {
+        show off
+        description "Inferno AUX RX: Dante to analog out"
+    }
+}

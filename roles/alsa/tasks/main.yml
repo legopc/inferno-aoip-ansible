@@ -1,0 +1,40 @@
+---
+- name: Ensure ALSA system config directory exists
+  ansible.builtin.file:
+    path: /etc/alsa/conf.d
+    state: directory
+    mode: "0755"
+  become: true
+
+# Registers the inferno PCM plugin type system-wide so any user can reference it.
+- name: Deploy system-wide ALSA inferno plugin type config
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/templates/99-inferno.conf.j2"
+    dest: /etc/alsa/conf.d/99-inferno.conf
+    mode: "0644"
+  become: true
+
+# Per-user ALSA config defines the virtual PCM devices.
+# Template selected by inferno_mode (default: spotify).
+- name: Deploy user ALSA config (~/.asoundrc)
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/templates/{{ 'asoundrc-aux' if inferno_mode | default('spotify') == 'aux' else 'asoundrc' }}.j2"
+    dest: "/home/{{ inferno_user }}/.asoundrc"
+    mode: "0644"
+
+# AUX mode: configure the hardware mixer for 3.5mm jack I/O.
+# Mixer commands are codec-specific and defined per-node in the inventory as
+# `inferno_mixer_commands` (list of amixer commands). This allows different
+# codecs (CX20632 on G3, ALC221 on G2) to use the correct control references.
+# Settings are persisted to /var/lib/alsa/asound.state via alsactl store.
+- name: Configure ALSA mixer for 3.5mm jack I/O (AUX mode only)
+  ansible.builtin.command: "{{ item }}"
+  loop: "{{ inferno_mixer_commands }}"
+  changed_when: false
+  when: inferno_mode | default('spotify') == 'aux'
+
+- name: Persist ALSA mixer state to disk (AUX mode only)
+  ansible.builtin.command: "alsactl store {{ inferno_audio_card }}"
+  become: true
+  changed_when: false
+  when: inferno_mode | default('spotify') == 'aux'

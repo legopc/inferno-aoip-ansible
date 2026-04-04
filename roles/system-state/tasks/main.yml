@@ -1,0 +1,223 @@
+---
+# systemd-timesyncd conflicts with statime (both try to discipline the system clock).
+- name: Mask systemd-timesyncd (conflicts with statime PTP daemon)
+  ansible.builtin.systemd:
+    name: systemd-timesyncd.service
+    masked: true
+    state: stopped
+  become: true
+
+# Ensure the system waits for network before starting dependent services on boot.
+- name: Enable systemd-networkd-wait-online
+  ansible.builtin.systemd:
+    name: systemd-networkd-wait-online.service
+    enabled: true
+    daemon_reload: false
+  become: true
+
+# Linger keeps the user session (and user systemd) alive without an interactive login,
+# which is required for user-scope services like librespot to start on boot.
+- name: Check linger status for {{ inferno_user }}
+  ansible.builtin.command: "loginctl show-user {{ inferno_user }} --property=Linger --value"
+  register: linger_status
+  changed_when: false
+  failed_when: false
+
+- name: Enable linger for {{ inferno_user }}
+  ansible.builtin.command: "loginctl enable-linger {{ inferno_user }}"
+  become: true
+  when: linger_status.stdout | trim != 'yes'
+
+- name: Enable and start avahi-daemon (mDNS/DNS-SD for Spotify discovery)
+  ansible.builtin.systemd:
+    name: avahi-daemon.service
+    enabled: true
+    state: started
+  become: true
+
+# --- Mode-switch cleanup: stop and disable services that belong to the OTHER mode ---
+# This handles converting a node from spotify→aux or aux→spotify without stale services.
+
+- name: Stop and disable spotify services (when in aux mode)
+  ansible.builtin.command: "systemctl --user disable --now {{ item }}"
+  loop:
+    - librespot.service
+    - inferno-bridge.service
+    - inferno-keepalive.service
+    - librespot-watchdog.service
+    - inferno-rx.service
+    - alsa-restore.service
+    - pipewire.service
+    - pipewire-pulse.service
+    - wireplumber.service
+  failed_when: false
+  changed_when: false
+  when: inferno_mode | default('spotify') == 'aux'
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ inferno_uid }}"
+
+- name: Stop and disable aux services (when in spotify mode)
+  ansible.builtin.command: "systemctl --user disable --now {{ item }}"
+  loop:
+    - inferno-aux-tx.service
+    - inferno-aux-rx.service
+    - inferno-aux-keepalive.service
+  failed_when: false
+  changed_when: false
+  when: inferno_mode | default('spotify') == 'spotify'
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ inferno_uid }}"
+
+# --- Spotify mode services ---
+
+# User-scope PipeWire services must be managed via `systemctl --user` with XDG_RUNTIME_DIR
+# because the systemd module's scope: user is unreliable in non-interactive SSH sessions.
+# PipeWire is only needed in spotify mode (librespot writes to PipeWire).
+- name: Check which PipeWire user services are not yet enabled
+  ansible.builtin.command: "systemctl --user is-enabled {{ item }}"
+  loop:
+    - pipewire.service
+    - pipewire-pulse.service
+    - wireplumber.service
+  register: pw_enabled_check
+  changed_when: false
+  failed_when: false
+  when: inferno_mode | default('spotify') == 'spotify'
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ inferno_uid }}"
+
+- name: Enable and start PipeWire user services (only if not already enabled)
+  ansible.builtin.command: "systemctl --user enable --now {{ item.item }}"
+  loop: "{{ pw_enabled_check.results }}"
+  when:
+    - inferno_mode | default('spotify') == 'spotify'
+    - item.stdout | trim != 'enabled'
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ inferno_uid }}"
+
+- name: Enable and start statime-inferno PTP daemon
+  ansible.builtin.systemd:
+    name: statime-inferno.service
+    enabled: true
+    state: started
+  become: true
+
+- name: Check if inferno-keepalive user service is enabled
+  ansible.builtin.command: systemctl --user is-enabled inferno-keepalive.service
+  register: keepalive_enabled_check
+  changed_when: false
+  failed_when: false
+  when: inferno_mode | default('spotify') == 'spotify'
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ inferno_uid }}"
+
+- name: Enable and start inferno-keepalive user service
+  ansible.builtin.command: systemctl --user enable --now inferno-keepalive.service
+  when:
+    - inferno_mode | default('spotify') == 'spotify'
+    - keepalive_enabled_check.stdout | trim != 'enabled'
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ inferno_uid }}"
+
+- name: Check if librespot-watchdog user service is enabled
+  ansible.builtin.command: systemctl --user is-enabled librespot-watchdog.service
+  register: watchdog_enabled_check
+  changed_when: false
+  failed_when: false
+  when: inferno_mode | default('spotify') == 'spotify'
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ inferno_uid }}"
+
+- name: Enable and start librespot-watchdog user service
+  ansible.builtin.command: systemctl --user enable --now librespot-watchdog.service
+  when:
+    - inferno_mode | default('spotify') == 'spotify'
+    - watchdog_enabled_check.stdout | trim != 'enabled'
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ inferno_uid }}"
+
+- name: Check if librespot user service is enabled
+  ansible.builtin.command: systemctl --user is-enabled librespot.service
+  register: librespot_enabled_check
+  changed_when: false
+  failed_when: false
+  when: inferno_mode | default('spotify') == 'spotify'
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ inferno_uid }}"
+
+- name: Enable and start librespot user service
+  ansible.builtin.command: systemctl --user enable --now librespot.service
+  when:
+    - inferno_mode | default('spotify') == 'spotify'
+    - librespot_enabled_check.stdout | trim != 'enabled'
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ inferno_uid }}"
+
+- name: Check if inferno-bridge user service is enabled
+  ansible.builtin.command: systemctl --user is-enabled inferno-bridge.service
+  register: bridge_enabled_check
+  changed_when: false
+  failed_when: false
+  when: inferno_mode | default('spotify') == 'spotify'
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ inferno_uid }}"
+
+- name: Enable and start inferno-bridge user service
+  ansible.builtin.command: systemctl --user enable --now inferno-bridge.service
+  when:
+    - inferno_mode | default('spotify') == 'spotify'
+    - bridge_enabled_check.stdout | trim != 'enabled'
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ inferno_uid }}"
+
+# --- AUX mode services ---
+
+- name: Check if inferno-aux-tx user service is enabled
+  ansible.builtin.command: systemctl --user is-enabled inferno-aux-tx.service
+  register: aux_tx_enabled_check
+  changed_when: false
+  failed_when: false
+  when: inferno_mode | default('spotify') == 'aux'
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ inferno_uid }}"
+
+- name: Enable and start inferno-aux-tx user service
+  ansible.builtin.command: systemctl --user enable --now inferno-aux-tx.service
+  when:
+    - inferno_mode | default('spotify') == 'aux'
+    - aux_tx_enabled_check.stdout | trim != 'enabled'
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ inferno_uid }}"
+
+- name: Check if inferno-aux-rx user service is enabled
+  ansible.builtin.command: systemctl --user is-enabled inferno-aux-rx.service
+  register: aux_rx_enabled_check
+  changed_when: false
+  failed_when: false
+  when: inferno_mode | default('spotify') == 'aux'
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ inferno_uid }}"
+
+- name: Enable and start inferno-aux-rx user service
+  ansible.builtin.command: systemctl --user enable --now inferno-aux-rx.service
+  when:
+    - inferno_mode | default('spotify') == 'aux'
+    - aux_rx_enabled_check.stdout | trim != 'enabled'
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ inferno_uid }}"
+
+# inferno-aux-keepalive is INTENTIONALLY NOT ENABLED on aux nodes.
+# Root cause of removal: aux-rx (alsaloop) runs continuously and already holds the
+# inferno_aux_rx Dante subscription open. If keepalive ALSO opens the same device
+# (to discard audio via arecord), there are two competing subscription owners.
+# Dante Controller stream-change commands reach one opener but not the other, so
+# routing changes appear to be accepted but audio doesn't switch.
+# Fix: aux-rx is the sole owner of inferno_aux_rx. Restart=always ensures it
+# recovers within seconds if it crashes — no keepalive needed.
+- name: Stop and disable inferno-aux-keepalive (must not run alongside aux-rx)
+  ansible.builtin.command: systemctl --user disable --now inferno-aux-keepalive.service
+  failed_when: false
+  changed_when: false
+  when: inferno_mode | default('spotify') == 'aux'
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ inferno_uid }}"

@@ -1,0 +1,50 @@
+---
+- name: Provision Inferno AoIP thin client
+  hosts: inferno-node
+  gather_facts: false
+  # Connect as inferno_user; individual tasks declare become: true where root is needed.
+
+  pre_tasks:
+    # On a fresh Arch install Python may not be present. Use raw (no Python needed) to install it
+    # first, then gather facts normally. Safe to run on already-provisioned nodes (pacman -Q exits 0).
+    - name: Bootstrap Python on fresh Arch install
+      ansible.builtin.raw: pacman -Q python >/dev/null 2>&1 || pacman -S --noconfirm python
+      become: true
+      changed_when: false
+
+    - name: Gather facts (after Python is available)
+      ansible.builtin.setup:
+
+    - name: Resolve UID for inferno_user (needed for XDG_RUNTIME_DIR in user-scope systemctl calls)
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ inferno_user }}"
+      register: getent_result
+
+    - name: Set inferno_uid fact
+      ansible.builtin.set_fact:
+        inferno_uid: "{{ ansible_facts.getent_passwd[inferno_user][1] }}"
+
+    - name: Read MAC address for {{ inferno_interface }}
+      ansible.builtin.command: "cat /sys/class/net/{{ inferno_interface }}/address"
+      register: mac_raw
+      changed_when: false
+
+    # Derive Dante device ID from MAC: strip colons and append "0000"
+    # e.g. 9c:8e:99:ee:fa:06 → 9c8e99eefa060000
+    - name: Derive inferno_device_id from MAC address
+      ansible.builtin.set_fact:
+        inferno_device_id: "{{ mac_raw.stdout | replace(':', '') }}0000"
+      when: inferno_device_id is not defined
+
+  roles:
+    - base
+    - rust
+    - statime
+    - inferno
+    - alsa
+    - role: librespot
+      when: inferno_mode | default('spotify') == 'spotify'
+    - role: aux
+      when: inferno_mode | default('spotify') == 'aux'
+    - system-state

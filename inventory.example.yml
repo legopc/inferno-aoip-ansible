@@ -1,0 +1,88 @@
+---
+# Inferno AoIP — Example Inventory
+#
+# Copy this file to e.g. inventory-mynode.yml, fill in your values, then run:
+#   ansible-playbook -i inventory-mynode.yml site.yml
+#
+# The .gitignore excludes inventory-*.yml so your credentials won't be committed.
+# Never commit real IPs, passwords, or SSH key paths to version control.
+#
+# This file shows all three node types. In practice each inventory file
+# targets one node. Run the playbook separately per node.
+
+all:
+  hosts:
+    inferno-node:
+
+      # ── Connection ─────────────────────────────────────────────────────────
+      ansible_host: 192.0.2.10            # IP address of your node
+      ansible_user: "{{ inferno_user }}"  # SSH login user (see inferno_user below)
+      ansible_ssh_private_key_file: ~/.ssh/your_key
+      # If your node requires a sudo password:
+      # ansible_become_password: "CHANGE_ME"
+      # To use Ansible Vault instead (recommended):
+      # ansible_become_password: "{{ vault_become_password }}"
+
+      # ── Node identity ───────────────────────────────────────────────────────
+      # inferno_user: the non-root user that owns all Inferno services.
+      # Must already exist on the node (created during Arch install).
+      inferno_user: your_username
+
+      # Network interface used for Dante/PTP traffic.
+      # Find with: ip link show    (usually enp*s0, eno1, eth0 etc.)
+      inferno_interface: enp1s0
+
+      # Spotify Connect device name shown in the Spotify app.
+      # Only used in spotify mode.
+      inferno_name: "My Inferno Node"
+
+      # Node operating mode. Choose one:
+      #   spotify  — Spotify Connect transmitter (default)
+      #   aux      — Analog I/O bridge (line in → Dante TX, Dante RX → line out)
+      inferno_mode: spotify
+
+      # ── Audio hardware ──────────────────────────────────────────────────────
+      # ALSA card index of the physical audio interface.
+      # snd-aloop is pinned to card 5 by the base role; hardware usually lands at 0 or 1.
+      # Find with: aplay -l    (look for your codec, not Loopback)
+      inferno_audio_card: 0
+
+      # ── AUX mode only ──────────────────────────────────────────────────────
+      # amixer commands to configure the hardware mixer for 3.5mm jack I/O.
+      # These are codec-specific. Run `amixer -c <card> contents` on your node
+      # to find the correct numids for your codec.
+      # Required in aux mode; unused in spotify mode.
+      #
+      # Example below is for a Realtek ALC221 codec (HP EliteDesk 800 G2 DM):
+      inferno_mixer_commands:
+        - "amixer -c 1 cset numid=15 on"      # Master Playback Switch: on
+        - "amixer -c 1 cset numid=14 87"      # Master Playback Volume: max
+        - "amixer -c 1 cset numid=2 on,on"    # Headphone Playback Switch: on
+        - "amixer -c 1 cset numid=1 87,87"    # Headphone Playback Volume: max
+        - "amixer -c 1 cset numid=8 1"        # Auto-Mute Mode: enabled
+        - "amixer -c 1 cset numid=10 on,on"   # Capture Switch: on
+        - "amixer -c 1 cset numid=9 0,0"      # Capture Volume: min (use Dante Controller for gain)
+        - "amixer -c 1 cset numid=11 0,0"     # Mic Boost: 0 dB (line-level source)
+
+      # ── Optional overrides ──────────────────────────────────────────────────
+      # inferno_device_id is auto-derived from the inferno_interface MAC address
+      # by the site.yml pre_tasks (strips colons, appends 0000).
+      # Override here only if auto-derivation doesn't work for your setup:
+      # inferno_device_id: "aabbccddeeff0000"
+
+# ── Bluetooth bridge node (T470s style) ────────────────────────────────────────
+# This node runs in spotify mode at the Ansible level, but also runs an additional
+# service (inferno-bt-loop) that bridges a Bluetooth A2DP source into Dante.
+# Deploy the base spotify playbook first, then layer the bt-bridge role on top.
+#
+# bt_spotify_node:
+#   hosts:
+#     inferno-bt-node:
+#       ansible_host: 192.0.2.11
+#       ansible_user: "{{ inferno_user }}"
+#       ansible_ssh_private_key_file: ~/.ssh/your_key
+#       inferno_user: your_username
+#       inferno_interface: enp0s31f6
+#       inferno_name: "BT Bridge"
+#       inferno_mode: spotify
+#       inferno_audio_card: 0

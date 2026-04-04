@@ -1,0 +1,15 @@
+[Unit]
+Description=Inferno AUX RX keepalive (holds Dante subscription open)
+After=statime-inferno.service
+Wants=statime-inferno.service
+
+[Service]
+Type=simple
+# Continuously read from Dante RX device, discarding audio — keeps the Dante
+# subscription alive so re-subscription delays are avoided on the next real use.
+ExecStart=/usr/bin/arecord -D inferno_aux_rx -f S32_LE -r 48000 -c 2 /dev/null
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

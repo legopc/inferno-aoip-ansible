@@ -1,0 +1,30 @@
+#!/bin/bash
+# Called by librespot --emit-sink-events --onevent
+#
+# With the loopback bridge architecture, keepalive start/stop coordination is no
+# longer needed — inferno-bridge permanently owns inferno_spotify, so DeviceServer
+# never restarts on ALSA handoffs.
+#
+# This script now only maintains the /tmp/inferno-sink-active flag file, which
+# the librespot-watchdog reads to detect AP disconnects during active playback.
+#
+# Deploy to: ~/bin/inferno-sink-event
+# Make executable: chmod +x ~/bin/inferno-sink-event
+
+LOG=/tmp/inferno-sink-event.log
+FLAG=/tmp/inferno-sink-active
+
+log() {
+    echo "$(date '+%Y-%m-%dT%H:%M:%S.%3N') [sink-event] $*" >> "$LOG"
+}
+
+case "${PLAYER_EVENT}" in
+  sink_opened)
+    touch "$FLAG"
+    log "sink_opened — sink active flag set"
+    ;;
+  sink_closed)
+    rm -f "$FLAG"
+    log "sink_closed — sink active flag cleared"
+    ;;
+esac

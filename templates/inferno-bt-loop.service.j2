@@ -1,0 +1,20 @@
+[Unit]
+Description=Inferno Bluetooth Loopback → Dante TX
+After=inferno-bt-bridge.service
+Wants=inferno-bt-bridge.service
+# PartOf ensures bt-loop stops/restarts with bt-bridge (e.g. on phone pause/resume).
+# This prevents TX ring buffer lag accumulation when bluealsa-aplay stops writing.
+PartOf=inferno-bt-bridge.service
+
+[Service]
+Type=simple
+ExecStartPre=/bin/sh -c 'while [ ! -S /tmp/ptp-usrvclock ]; do sleep 1; done'
+ExecStart=/usr/bin/alsaloop -C hw:Loopback,1,2 -P inferno_bluetooth -r 48000 -f S32_LE -c 2 -t 20000
+Restart=always
+RestartSec=2
+# Restart every 6h to prevent inferno TX ring buffer lag accumulation (>~14h uptime
+# causes 115702-sample lag that prevents new Dante subscribers from receiving media)
+RuntimeMaxSec=6h
+
+[Install]
+WantedBy=default.target

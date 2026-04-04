@@ -1,0 +1,21 @@
+[Unit]
+Description=Inferno AUX RX bridge (Dante → analog out)
+After=statime-inferno.service sound.target
+Wants=statime-inferno.service
+
+[Service]
+Type=simple
+ExecStartPre=/bin/sh -c 'until [ -S /tmp/ptp-usrvclock ]; do sleep 1; done'
+ExecStartPre=/bin/sleep 10
+ExecStart=/usr/bin/alsaloop \
+    -C inferno_aux_rx \
+    -P plughw:{{ inferno_audio_card }},0 \
+    -r 48000 \
+    -f S32_LE \
+    -c 2 \
+    -t 10000
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,13 @@
+---
+# XDG_RUNTIME_DIR must be set explicitly because systemd --user in an SSH session
+# does not inherit it automatically from the user login session.
+- name: reload user systemd daemon
+  ansible.builtin.command: systemctl --user daemon-reload
+  changed_when: false
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ inferno_uid }}"
+
+- name: restart pipewire
+  ansible.builtin.command: systemctl --user restart pipewire.service
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ inferno_uid }}"

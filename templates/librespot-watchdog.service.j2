@@ -1,0 +1,12 @@
+[Unit]
+Description=Librespot Audio Key Error Watchdog
+# Note: No After=librespot.service here — that creates an ordering cycle with
+# inferno-bridge (which has Before=librespot) and prevents the watchdog from starting.
+
+[Service]
+ExecStart=/home/{{ inferno_user }}/bin/librespot-watchdog
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

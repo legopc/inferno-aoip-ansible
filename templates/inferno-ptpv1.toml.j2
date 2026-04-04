@@ -1,0 +1,16 @@
+loglevel = "trace"
+
+sdo-id = 0
+domain = 0
+priority1 = 251
+virtual-system-clock = true
+virtual-system-clock-base = "monotonic_raw"
+usrvclock-export = true
+
+[[port]]
+interface = "{{ inferno_interface }}"
+network-mode = "ipv4"
+
+hardware-clock = "auto"
+
+protocol-version = "PTPv1"

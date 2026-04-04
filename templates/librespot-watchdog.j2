@@ -1,0 +1,59 @@
+#!/bin/bash
+# Monitors librespot for errors that indicate a Spotify AP connection problem
+# and restarts it to avoid prolonged audio silence.
+#
+# Pattern 1 — "Unable to load key" (and variants):
+#   After an AP TCP RST the in-flight audio-key request times out. Librespot
+#   plays the track without decryption (silence/noise) for 20-90 seconds, then
+#   logs this error. Restarting forces a clean reconnect and fresh key fetch.
+#
+# Pattern 2 — AP / session disconnect detected early:
+#   If a disconnect log entry appears while a song is actively playing
+#   (indicated by /tmp/inferno-sink-active set by inferno-sink-event), we
+#   restart immediately instead of waiting for the full key-load timeout. This
+#   reduces the silence window from 20-90 s to ~15 s (RestartSec + startup).
+#
+# After restarting librespot, also restarts inferno-keepalive so the Dante TX
+# stays advertised while librespot reconnects.
+#
+# 30s cooldown prevents restart storms on persistent failures.
+
+LAST_RESTART=0
+COOLDOWN=30
+SINK_FLAG=/tmp/inferno-sink-active
+
+restart_librespot() {
+    local reason="$1"
+    local NOW
+    NOW=$(date +%s)
+    local ELAPSED=$(( NOW - LAST_RESTART ))
+    if [ "$ELAPSED" -ge "$COOLDOWN" ]; then
+        echo "[librespot-watchdog] $reason — restarting librespot" >&2
+        LAST_RESTART=$NOW
+        systemctl --user restart librespot.service
+        # Re-start keepalive: librespot won't fire sink_closed on a forced
+        # restart, so keepalive would stay stopped. Give librespot 3 s to
+        # settle, then start keepalive to keep Dante TX advertised.
+        sleep 3
+        systemctl --user start inferno-keepalive.service
+    else
+        echo "[librespot-watchdog] $reason in cooldown (${ELAPSED}s < ${COOLDOWN}s), skipping" >&2
+    fi
+}
+
+# --since now: only process NEW log entries (not historical ones at startup)
+journalctl --user -u librespot --since now -f -o cat | \
+while IFS= read -r line; do
+    # Audio key errors — restart regardless of sink state
+    if echo "$line" | grep -qE "Unable to load key|Failed to get audio key|Cannot get audio key"; then
+        restart_librespot "audio key error"
+
+    # AP/session disconnect — restart early ONLY if a song was actively playing.
+    # The flag file is set by inferno-sink-event on sink_opened and cleared on
+    # sink_closed, so its presence means librespot had the ALSA device open.
+    elif echo "$line" | grep -qiE "lost connection|session disconnected|AP disconnected|connection reset by peer|reconnecting to AP"; then
+        if [ -f "$SINK_FLAG" ]; then
+            restart_librespot "AP disconnect during active playback"
+        fi
+    fi
+done

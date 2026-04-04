@@ -1,0 +1,30 @@
+---
+- name: Ensure user systemd service directory exists
+  ansible.builtin.file:
+    path: "/home/{{ inferno_user }}/.config/systemd/user"
+    state: directory
+    mode: "0755"
+
+- name: Deploy inferno-aux-tx user systemd service
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/templates/inferno-aux-tx.service.j2"
+    dest: "/home/{{ inferno_user }}/.config/systemd/user/inferno-aux-tx.service"
+    mode: "0644"
+
+- name: Deploy inferno-aux-rx user systemd service
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/templates/inferno-aux-rx.service.j2"
+    dest: "/home/{{ inferno_user }}/.config/systemd/user/inferno-aux-rx.service"
+    mode: "0644"
+
+- name: Deploy inferno-aux-keepalive user systemd service
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/templates/inferno-aux-keepalive.service.j2"
+    dest: "/home/{{ inferno_user }}/.config/systemd/user/inferno-aux-keepalive.service"
+    mode: "0644"
+
+- name: Reload user systemd daemon after AUX service deployment
+  ansible.builtin.command: systemctl --user daemon-reload
+  changed_when: false
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ inferno_uid }}"

@@ -1,0 +1,34 @@
+---
+- name: Check if rustup is already installed
+  ansible.builtin.stat:
+    path: "/home/{{ inferno_user }}/.cargo/bin/rustup"
+  register: rustup_stat
+
+# Install rustup without modifying shell profiles; PATH is set explicitly in later tasks.
+- name: Install rustup via official installer
+  ansible.builtin.shell: >
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path
+  args:
+    creates: "/home/{{ inferno_user }}/.cargo/bin/rustup"
+  environment:
+    HOME: "/home/{{ inferno_user }}"
+    RUSTUP_HOME: "/home/{{ inferno_user }}/.rustup"
+    CARGO_HOME: "/home/{{ inferno_user }}/.cargo"
+  when: not rustup_stat.stat.exists
+
+- name: Ensure Rust stable toolchain is installed
+  ansible.builtin.command: "/home/{{ inferno_user }}/.cargo/bin/rustup toolchain install stable"
+  register: rustup_toolchain
+  changed_when: "'installed' in rustup_toolchain.stdout"
+  environment:
+    HOME: "/home/{{ inferno_user }}"
+    RUSTUP_HOME: "/home/{{ inferno_user }}/.rustup"
+    CARGO_HOME: "/home/{{ inferno_user }}/.cargo"
+
+- name: Set stable as default Rust toolchain
+  ansible.builtin.command: "/home/{{ inferno_user }}/.cargo/bin/rustup default stable"
+  changed_when: false
+  environment:
+    HOME: "/home/{{ inferno_user }}"
+    RUSTUP_HOME: "/home/{{ inferno_user }}/.rustup"
+    CARGO_HOME: "/home/{{ inferno_user }}/.cargo"

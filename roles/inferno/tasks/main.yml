@@ -1,0 +1,89 @@
+---
+- name: Clone inferno repository
+  ansible.builtin.git:
+    repo: https://gitlab.com/lumifaza/inferno.git
+    dest: "/home/{{ inferno_user }}/inferno"
+    recursive: true
+    update: true
+  register: inferno_git
+
+# PipeWire needs adjtimex/clock_adjtime to discipline the clock for PTP sync.
+# The override drops those syscalls into its SystemCallFilter allowlist.
+- name: Ensure PipeWire systemd drop-in directory exists
+  ansible.builtin.file:
+    path: "/home/{{ inferno_user }}/.config/systemd/user/pipewire.service.d"
+    state: directory
+    mode: "0755"
+
+- name: Install PipeWire syscall-filter override (from cloned repo)
+  ansible.builtin.copy:
+    src: "/home/{{ inferno_user }}/inferno/os_integration/systemd_allow_clock.conf"
+    dest: "/home/{{ inferno_user }}/.config/systemd/user/pipewire.service.d/override.conf"
+    remote_src: true
+    mode: "0644"
+  notify:
+    - reload user systemd daemon
+    - restart pipewire
+
+- name: Get current inferno commit hash
+  ansible.builtin.command: git rev-parse HEAD
+  args:
+    chdir: "/home/{{ inferno_user }}/inferno"
+  register: inferno_commit
+  changed_when: false
+
+# Stamp file stores the commit hash of the last successful build.
+# Re-building only when the repo has advanced avoids redundant multi-minute compiles.
+- name: Read inferno build stamp (if present)
+  ansible.builtin.slurp:
+    src: "/home/{{ inferno_user }}/inferno/.build-stamp"
+  register: inferno_stamp_raw
+  failed_when: false
+
+- name: Determine whether inferno needs to be rebuilt
+  ansible.builtin.set_fact:
+    inferno_build_needed: >-
+      {{
+        inferno_stamp_raw.content is not defined
+        or (inferno_stamp_raw.content | b64decode | trim) != inferno_commit.stdout
+      }}
+
+- name: Build inferno ALSA PCM plugin
+  when: inferno_build_needed | bool
+  block:
+    - name: Compile inferno alsa_pcm_inferno with cargo --release
+      ansible.builtin.command: "/home/{{ inferno_user }}/.cargo/bin/cargo build --release"
+      args:
+        chdir: "/home/{{ inferno_user }}/inferno/alsa_pcm_inferno"
+      environment:
+        HOME: "/home/{{ inferno_user }}"
+        CARGO_HOME: "/home/{{ inferno_user }}/.cargo"
+        RUSTUP_HOME: "/home/{{ inferno_user }}/.rustup"
+        PATH: "/home/{{ inferno_user }}/.cargo/bin:/usr/local/bin:/usr/bin:/bin"
+
+    - name: Write inferno build stamp
+      ansible.builtin.copy:
+        content: "{{ inferno_commit.stdout }}"
+        dest: "/home/{{ inferno_user }}/inferno/.build-stamp"
+        mode: "0644"
+
+  rescue:
+    - name: Fail with descriptive message on inferno build failure
+      ansible.builtin.fail:
+        msg: "Inferno cargo build --release failed. See output above."
+
+- name: Ensure ALSA plugin directory exists
+  ansible.builtin.file:
+    path: /usr/lib/alsa-lib
+    state: directory
+    mode: "0755"
+  become: true
+
+# The compiled .so is the ALSA PCM plugin that exposes the Inferno AoIP device.
+- name: Install inferno ALSA PCM plugin to system ALSA plugin directory
+  ansible.builtin.copy:
+    src: "/home/{{ inferno_user }}/inferno/target/release/libasound_module_pcm_inferno.so"
+    dest: /usr/lib/alsa-lib/libasound_module_pcm_inferno.so
+    remote_src: true
+    mode: "0644"
+  become: true

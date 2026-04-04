@@ -1,0 +1,3 @@
+[Service]
+# Allow PipeWire to use clock_adjtime/adjtimex syscalls needed for PTP synchronisation with Inferno
+SystemCallFilter=@system-service adjtimex clock_adjtime

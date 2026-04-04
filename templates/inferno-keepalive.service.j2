@@ -1,0 +1,20 @@
+[Unit]
+Description=Inferno Dante Keepalive
+Documentation=https://gitlab.com/lumifaza/inferno
+After=inferno-bridge.service
+After=default.target
+
+[Service]
+# Write silence to the loopback mix bus to keep the snd-aloop loopback device
+# active (preventing underruns on the capture side that inferno-bridge reads).
+# inferno-bridge forwards the silence (zeros) to inferno_spotify — the Dante
+# DeviceServer stays alive with a continuous zero-sample stream when idle.
+# dmix arithmetic: 0 (silence) + librespot audio = librespot audio.
+ExecStart=/usr/bin/aplay -D inferno_mix -r 48000 -f S32_LE -c 2 /dev/zero
+# Restart on failure (e.g. transient ALSA errors), but NOT on clean stop.
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=5
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,71 @@
+---
+- name: Clone statime (Inferno fork) repository
+  ansible.builtin.git:
+    repo: https://github.com/teodly/statime
+    dest: "/home/{{ inferno_user }}/statime"
+    version: inferno-dev
+    recursive: true
+    update: true
+    force: true
+  register: statime_git
+
+- name: Get current statime commit hash
+  ansible.builtin.command: git rev-parse HEAD
+  args:
+    chdir: "/home/{{ inferno_user }}/statime"
+  register: statime_commit
+  changed_when: false
+
+# Stamp file stores the commit hash of the last successful build.
+# Re-building only when the repo has advanced avoids redundant multi-minute compiles.
+- name: Read statime build stamp (if present)
+  ansible.builtin.slurp:
+    src: "/home/{{ inferno_user }}/statime/.build-stamp"
+  register: statime_stamp_raw
+  failed_when: false
+
+- name: Determine whether statime needs to be rebuilt
+  ansible.builtin.set_fact:
+    statime_build_needed: >-
+      {{
+        statime_stamp_raw.content is not defined
+        or (statime_stamp_raw.content | b64decode | trim) != statime_commit.stdout
+      }}
+
+- name: Build statime
+  when: statime_build_needed | bool
+  block:
+    - name: Compile statime with cargo
+      ansible.builtin.command: "/home/{{ inferno_user }}/.cargo/bin/cargo build"
+      args:
+        chdir: "/home/{{ inferno_user }}/statime"
+      environment:
+        HOME: "/home/{{ inferno_user }}"
+        CARGO_HOME: "/home/{{ inferno_user }}/.cargo"
+        RUSTUP_HOME: "/home/{{ inferno_user }}/.rustup"
+        PATH: "/home/{{ inferno_user }}/.cargo/bin:/usr/local/bin:/usr/bin:/bin"
+
+    - name: Write statime build stamp
+      ansible.builtin.copy:
+        content: "{{ statime_commit.stdout }}"
+        dest: "/home/{{ inferno_user }}/statime/.build-stamp"
+        mode: "0644"
+
+  rescue:
+    - name: Fail with descriptive message on statime build failure
+      ansible.builtin.fail:
+        msg: "Statime cargo build failed. See output above."
+
+- name: Deploy PTP configuration for statime
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/templates/inferno-ptpv1.toml.j2"
+    dest: "/home/{{ inferno_user }}/statime/inferno-ptpv1.toml"
+    mode: "0644"
+
+- name: Deploy statime-inferno systemd service
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/templates/statime-inferno.service.j2"
+    dest: /etc/systemd/system/statime-inferno.service
+    mode: "0644"
+  become: true
+  notify: reload systemd daemon

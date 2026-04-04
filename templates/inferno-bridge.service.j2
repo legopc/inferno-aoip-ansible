@@ -1,0 +1,42 @@
+[Unit]
+Description=Inferno AoIP ALSA Loopback Bridge
+Documentation=https://gitlab.com/lumifaza/inferno
+# Must start before keepalive and librespot — this service owns inferno_spotify.
+After=statime-inferno.service
+After=default.target
+Before=inferno-keepalive.service
+Before=librespot.service
+
+[Service]
+# Bridges loopback capture → inferno_spotify, keeping DeviceServer permanently open.
+#
+# Without this bridge, every ALSA device handoff (song change, pause/resume) causes
+# inferno_spotify to close and reopen, restarting the Inferno DeviceServer. The Dante
+# receiver then goes through full re-subscription (20–90 seconds of silence).
+#
+# With this bridge running, inferno_spotify is never closed — DeviceServer stays alive,
+# Dante subscription never drops, and audio resumes instantly after any handoff.
+#
+# Signal chain:
+#   librespot → spotifyd (44.1kHz→48kHz) → inferno_mix (dmix loopback)
+#   inferno-keepalive → silence → inferno_mix
+#   inferno-bridge: hw:Loopback,1,0 (capture) → inferno_spotify (permanent owner)
+#
+# alsaloop replaces the old arecord|aplay pipe. It sets an explicit 20ms transfer
+# window and uses SAMPLERATE sync to compensate for clock drift between the loopback
+# device and the Inferno PCM clock. This avoids pipe-buffering latency accumulation
+# and handles xruns more gracefully than a raw shell pipe.
+ExecStartPre=/bin/sh -c 'while [ ! -S /tmp/ptp-usrvclock ]; do sleep 1; done'
+ExecStart=/usr/bin/alsaloop \
+  -C hw:Loopback,1,0 \
+  -P inferno_spotify \
+  -r 48000 \
+  -f S32_LE \
+  -c 2 \
+  -t 20000
+Restart=always
+RestartSec=3
+TimeoutStopSec=5
+
+[Install]
+WantedBy=default.target

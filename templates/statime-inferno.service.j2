@@ -1,0 +1,15 @@
+[Unit]
+Description=Statime PTP daemon (Inferno fork)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/{{ inferno_user }}/statime
+ExecStart=/home/{{ inferno_user }}/statime/target/debug/statime -c /home/{{ inferno_user }}/statime/inferno-ptpv1.toml
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

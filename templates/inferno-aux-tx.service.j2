@@ -1,0 +1,23 @@
+[Unit]
+Description=Inferno AUX TX bridge (analog in → Dante)
+After=statime-inferno.service sound.target
+Wants=statime-inferno.service
+
+[Service]
+Type=simple
+# Wait for Statime PTP socket before starting, then allow 10 s for clock stabilisation
+ExecStartPre=/bin/sh -c 'until [ -S /tmp/ptp-usrvclock ]; do sleep 1; done'
+ExecStartPre=/bin/sleep 10
+# plughw handles format conversion from native hw format → S32_LE for Inferno
+ExecStart=/usr/bin/alsaloop \
+    -C plughw:{{ inferno_audio_card }},0 \
+    -P inferno_aux_tx \
+    -r 48000 \
+    -f S32_LE \
+    -c 2 \
+    -t 10000
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
